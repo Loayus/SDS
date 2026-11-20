@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SDS</title>
+    <script>
+      // Adresse inconnue : retour à l'accueil de l'app (/SDS/ sur GitHub Pages).
+      var seg = location.pathname.split('/')[1];
+      location.replace((seg ? '/' + seg + '/' : '/') + location.hash);
+    </script>
+    <style>body{background:#050506;color:#a3a3ad;font:16px -apple-system,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
+  </head>
+  <body><a href="./" style="color:#b3a6ff">Ouvrir SDS</a></body>
+</html>
