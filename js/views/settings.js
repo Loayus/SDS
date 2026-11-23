@@ -7,7 +7,7 @@ import { MUSCLES } from '../exercises.js';
 import { fmtWeight, parseNum, numToInput, fmtMinSec, dayKey, isIOS, isStandalone } from '../utils.js';
 import { LogoMark } from '../logo.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 async function exportData() {
   const json = JSON.stringify(exportPayload(), null, 1);
@@ -210,6 +210,7 @@ export function Help() {
       <p><b>Chrono</b> — il démarre avec la séance et continue même si tu quittes l'app. Le bouton pause l'arrête.</p>
       <p><b>Valeurs grisées</b> — ce sont tes charges/reps de la dernière fois. Touche ✓ pour les valider telles quelles, ou touche la colonne « Précédent » pour les recopier.</p>
       <p><b>Dégressif</b> — bouton « Dégressif » sous l'exercice (ajouté à la dernière série) ou touche le numéro d'une série → « Ajouter un dégressif ». Ex. : 4 × 100 kg ↘ 3 × 80 kg ↘ 2 × 60 kg.</p>
+      <p><b>Cardio et routine abdos</b> — pour le tapis, le vélo, le rameur et la marche, note la durée (min) et la distance (km, facultative). La routine abdos ne demande que la durée (min + s).</p>
       <p><b>Échauffement</b> — touche le numéro d'une série → « Marquer comme échauffement » : elle n'est pas comptée dans le volume ni les records.</p>
       <p><b>Repos</b> — un minuteur démarre à chaque série validée (réglable dans les paramètres, ±15 s pendant le repos).</p>
       <p><b>Réduire</b> — la flèche en haut à gauche te ramène à l'accueil sans arrêter la séance.</p>

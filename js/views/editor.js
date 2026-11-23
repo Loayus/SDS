@@ -10,6 +10,7 @@ import {
   newEntryLike,
   newSet,
   newDrop,
+  durationFields,
   cleanEntries,
   toEditableEntries,
   finishActive,
@@ -34,10 +35,10 @@ import {
   TopBar,
 } from '../ui.js';
 import { pickExercises } from '../picker.js';
-import { getExercise, MUSCLES, EQUIPMENT } from '../exercises.js';
+import { getExercise, exSubtitle, exType } from '../exercises.js';
 import { MuscleThumb } from '../body.js';
-import { lastEntry, setVolume } from '../stats.js';
-import { fmtClock, fmtMinSec, fmtWeight, fmtTime, fmtKg, numToInput, parseNum, clamp, uid, fmtDuration } from '../utils.js';
+import { lastEntry, setVolume, isStrength } from '../stats.js';
+import { fmtClock, fmtMinSec, fmtWeight, fmtTime, fmtKg, numToInput, parseNum, clamp, uid, fmtDuration, fmtTimeSet, fmtKm } from '../utils.js';
 
 const str = (v) => (v == null ? '' : String(v)).trim();
 
@@ -181,7 +182,7 @@ function SessionEditor({ mode, doc, touch, original }) {
     if (!cleaned.length) {
       const r = await actionSheet({
         title: 'Aucune série renseignée',
-        message: 'Saisis au moins une série (répétitions) pour enregistrer la séance.',
+        message: 'Saisis au moins une série (répétitions ou durée) pour enregistrer la séance.',
         actions: [{ label: 'Abandonner la séance', icon: 'trash-2', value: 'discard', danger: true }],
       });
       if (r === 'discard') {
@@ -192,8 +193,8 @@ function SessionEditor({ mode, doc, touch, original }) {
       return;
     }
     let empty = 0;
-    for (const e of doc.exercises) for (const s of e.sets) if (!parseNum(s.reps)) empty++;
-    const sets = cleaned.reduce((a, e) => a + e.sets.filter((s) => !s.warmup).length, 0);
+    for (const e of doc.exercises) for (const s of e.sets) if (!setFilled(s, exType(e.exerciseId))) empty++;
+    const sets = cleaned.reduce((a, e) => a + (isStrength(e) ? e.sets.filter((s) => !s.warmup).length : 0), 0);
     const volume = cleaned.reduce((a, e) => a + e.sets.filter((s) => !s.warmup).reduce((b, s) => b + setVolume(s), 0), 0);
     const ok = await openOverlay(FinishSheet, {
       duration: elapsedSec(doc),
@@ -211,7 +212,7 @@ function SessionEditor({ mode, doc, touch, original }) {
   const save = () => {
     const cleaned = cleanEntries(doc.exercises);
     if (!cleaned.length) {
-      toast('Ajoute au moins une série avec des répétitions', { icon: 'info' });
+      toast('Renseigne au moins une série', { icon: 'info' });
       return;
     }
     const [y, mo, d] = (doc.dateStr || '').split('-').map(Number);
@@ -340,8 +341,54 @@ function LiveHeader({ doc }) {
 // ---------------------------------------------------------------------------
 // Bloc exercice + tableau des séries
 
+// Colonnes de saisie selon le type d'exercice.
+const COLS = {
+  weight: [
+    { key: 'weight', head: 'kg', mode: 'decimal', ph: 'kg', aria: 'Charge' },
+    { key: 'reps', head: 'Reps', mode: 'numeric', ph: 'reps', aria: 'Répétitions' },
+  ],
+  time: [
+    { key: 'min', head: 'Min', mode: 'numeric', ph: 'min', aria: 'Minutes' },
+    { key: 'sec', head: 'Sec', mode: 'numeric', ph: 's', aria: 'Secondes' },
+  ],
+  cardio: [
+    { key: 'min', head: 'Min', mode: 'decimal', ph: 'min', aria: 'Minutes' },
+    { key: 'km', head: 'Km', mode: 'decimal', ph: 'km', aria: 'Kilomètres' },
+  ],
+};
+
+/** Valeurs de saisie suggérées à partir d'une série enregistrée. */
+function prevInputs(ps, type) {
+  if (!ps) return null;
+  if (type === 'weight') return [numToInput(ps.weight), numToInput(ps.reps)];
+  const f = durationFields(ps, type);
+  return type === 'time' ? [f.min, f.sec] : [f.min, f.km];
+}
+
+/** Texte de la colonne « Précédent ». */
+function prevText(ps, type) {
+  if (!ps) return '—';
+  if (type === 'weight') return `${fmtWeight(ps.weight)} × ${ps.reps}`;
+  if (type === 'time') return fmtTimeSet(ps.duration);
+  const parts = [];
+  if (ps.duration) parts.push(fmtTimeSet(ps.duration));
+  if (ps.distance) parts.push(fmtKm(ps.distance));
+  return parts.join(' · ') || '—';
+}
+
+/** Série renseignée ? (selon le type) */
+export function setFilled(s, type) {
+  if (type === 'weight') return !!parseNum(s.reps);
+  if (type === 'time') return (parseNum(s.min) || 0) * 60 + (parseNum(s.sec) || 0) > 0;
+  return (parseNum(s.min) || 0) > 0 || (parseNum(s.km) || 0) > 0;
+}
+
 function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) {
   const ex = getExercise(entry.exerciseId);
+  const type = ex.type || 'weight';
+  const strength = type === 'weight';
+  const cols = COLS[type] || COLS.weight;
+  const [ka, kb] = [cols[0].key, cols[1].key];
   const prev = lastEntry(entry.exerciseId, beforeTs, excludeId);
   const prevSets = prev ? prev.entry.sets : [];
   const prevWork = prevSets.filter((s) => !s.warmup);
@@ -355,20 +402,21 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
     const ps = s.warmup ? prevWarm[wu++] : prevWork[wk++];
     const before = i > 0 ? entry.sets[i - 1] : null;
     const bph = i > 0 ? ph[i - 1] : null;
-    const w = ps ? numToInput(ps.weight) : before ? str(before.weight) || bph.w : '';
-    const r = ps ? numToInput(ps.reps) : before ? str(before.reps) || bph.r : '';
-    const drops = (ps?.drops || []).map((d) => ({ w: numToInput(d.weight), r: numToInput(d.reps) }));
-    ph.push({ w, r, drops, prev: ps });
+    const pv = prevInputs(ps, type);
+    const a = pv ? pv[0] : before ? str(before[ka]) || bph.a : '';
+    const b = pv ? pv[1] : before ? str(before[kb]) || bph.b : '';
+    const drops = (ps?.drops || []).map((d) => ({ a: numToInput(d.weight), b: numToInput(d.reps) }));
+    ph.push({ a, b, drops, prev: ps });
   });
 
   const doneCount = entry.sets.filter((s) => s.done).length;
   let workN = 0;
 
   const menu = async () => {
-    const hasData = entry.sets.some((s) => str(s.reps) || str(s.weight));
+    const hasData = entry.sets.some((s) => str(s[ka]) || str(s[kb]));
     const r = await actionSheet({
       title: ex.name,
-      message: `${MUSCLES[ex.muscle]?.name} · ${EQUIPMENT[ex.equipment] || ''}`,
+      message: exSubtitle(ex),
       actions: [
         { label: 'Voir la progression', icon: 'chart-line', value: 'progress' },
         { label: entry.note ? 'Modifier la note' : 'Ajouter une note', icon: 'notebook-pen', value: 'note' },
@@ -415,42 +463,45 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
     touch();
     setTimeout(() => {
       const s = entry.sets[entry.sets.length - 1];
-      if (!last) document.getElementById('w-' + s.id)?.focus();
+      if (!last) document.getElementById('f0-' + s.id)?.focus();
     }, 30);
   };
 
-  const addDropTo = (set, i) => {
+  const addDropTo = (set) => {
     set.drops.push(newDrop());
     set.done = false;
     touch();
-    setTimeout(() => document.getElementById('w-' + set.drops[set.drops.length - 1].id)?.focus(), 40);
+    setTimeout(() => document.getElementById('f0-' + set.drops[set.drops.length - 1].id)?.focus(), 40);
   };
 
   const addDropLast = () => {
     if (!entry.sets.length) entry.sets.push(newSet());
-    const i = entry.sets.length - 1;
-    addDropTo(entry.sets[i], i);
+    addDropTo(entry.sets[entry.sets.length - 1]);
   };
 
   const setMenu = async (set, i, label) => {
     const r = await actionSheet({
       title: set.warmup ? 'Série d’échauffement' : `Série ${label}`,
       actions: [
-        { label: 'Ajouter un dégressif', icon: 'corner-down-right', value: 'drop' },
-        { label: set.warmup ? 'Compter comme série de travail' : 'Marquer comme échauffement', icon: 'flame', value: 'warmup' },
+        ...(strength
+          ? [
+              { label: 'Ajouter un dégressif', icon: 'corner-down-right', value: 'drop' },
+              { label: set.warmup ? 'Compter comme série de travail' : 'Marquer comme échauffement', icon: 'flame', value: 'warmup' },
+            ]
+          : []),
         { label: 'Dupliquer la série', icon: 'copy', value: 'dup' },
         { label: 'Supprimer la série', icon: 'trash-2', value: 'delete', danger: true },
       ],
     });
-    if (r === 'drop') addDropTo(set, i);
+    if (r === 'drop') addDropTo(set);
     if (r === 'warmup') {
       set.warmup = !set.warmup;
       touch();
     }
     if (r === 'dup') {
       const copy = newSet({
-        weight: str(set.weight) || ph[i].w,
-        reps: str(set.reps) || ph[i].r,
+        [ka]: str(set[ka]) || ph[i].a,
+        [kb]: str(set[kb]) || ph[i].b,
         warmup: set.warmup,
         drops: set.drops.map((d) => newDrop({ weight: d.weight, reps: d.reps })),
       });
@@ -471,27 +522,32 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
       return;
     }
     const p = ph[i];
-    if (!str(set.reps) && p.r) {
-      set.reps = p.r;
-      if (!str(set.weight) && p.w) set.weight = p.w;
-    } else if (str(set.reps) && !str(set.weight) && p.w) {
-      set.weight = p.w;
+    if (strength) {
+      if (!str(set.reps) && p.b) {
+        set.reps = p.b;
+        if (!str(set.weight) && p.a) set.weight = p.a;
+      } else if (str(set.reps) && !str(set.weight) && p.a) {
+        set.weight = p.a;
+      }
+    } else if (!str(set[ka]) && !str(set[kb])) {
+      set[ka] = p.a || '';
+      set[kb] = p.b || '';
     }
-    if (!parseNum(set.reps)) {
-      toast('Indique le nombre de répétitions', { icon: 'info' });
-      document.getElementById('r-' + set.id)?.focus();
+    if (!setFilled(set, type)) {
+      toast(strength ? 'Indique le nombre de répétitions' : type === 'time' ? 'Indique la durée' : 'Indique la durée ou la distance', { icon: 'info' });
+      document.getElementById((strength ? 'f1-' : 'f0-') + set.id)?.focus();
       return;
     }
     set.drops.forEach((d, j) => {
       const pd = p.drops[j];
       if (!str(d.reps) && pd) {
-        d.reps = pd.r;
-        if (!str(d.weight)) d.weight = pd.w;
+        d.reps = pd.b;
+        if (!str(d.weight)) d.weight = pd.a;
       }
     });
     set.done = true;
     haptic();
-    if (live) {
+    if (live && strength) {
       const secs = getData().profile.restDefault || 90;
       doc.rest = { endsAt: Date.now() + secs * 1000, total: secs };
     }
@@ -504,17 +560,17 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
     saveQuiet.t = setTimeout(() => touch(), 400);
   };
 
-  const fieldProps = (obj, key, placeholder, kind, idPrefix) => ({
-    id: idPrefix + obj.id,
+  const fieldProps = (obj, col, n, placeholder) => ({
+    id: `f${n}-` + obj.id,
     class: 'set-in',
     type: 'text',
-    inputmode: kind === 'w' ? 'decimal' : 'numeric',
+    inputmode: col.mode,
     enterkeyhint: 'next',
     autocomplete: 'off',
-    placeholder: placeholder || (kind === 'w' ? 'kg' : 'reps'),
-    value: obj[key],
+    placeholder: placeholder || col.ph,
+    value: obj[col.key] ?? '',
     onInput: (e) => {
-      obj[key] = e.target.value;
+      obj[col.key] = e.target.value;
       if (!live) return;
       saveQuiet();
     },
@@ -529,15 +585,15 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
     },
   });
 
+  const target = entry.target ? (strength ? `Objectif ${entry.sets.length} × ${entry.target} · ` : `Objectif ${entry.target} · `) : '';
+
   return html`<section class="card ex-block" id=${'ex-' + entry.id}>
     <div class="ex-block-head">
       <button class="ex-block-title" onClick=${menu}>
         <${MuscleThumb} muscle=${ex.muscle} secondary=${ex.secondary} size=${44} />
         <span>
           <b>${ex.name}</b>
-          <small>
-            ${entry.target ? `Objectif ${entry.sets.length} × ${entry.target} · ` : ''}${doneCount}/${entry.sets.length} série${entry.sets.length > 1 ? 's' : ''}
-          </small>
+          <small>${target}${doneCount}/${entry.sets.length} série${entry.sets.length > 1 ? 's' : ''}</small>
         </span>
       </button>
       <button class="icon-btn" aria-label=${'Options ' + ex.name} onClick=${menu}><${Icon} name="ellipsis" size=${22} /></button>
@@ -546,28 +602,28 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
 
     <div class=${'sets' + (live ? '' : ' no-check')}>
       <div class="sets-head">
-        <span>Série</span><span>Précédent</span><span>kg</span><span>Reps</span>${live ? html`<span></span>` : html`<span></span>`}
+        <span>Série</span><span>Précédent</span><span>${cols[0].head}</span><span>${cols[1].head}</span><span></span>
       </div>
       ${entry.sets.map((set, i) => {
         const label = set.warmup ? 'É' : String(++workN);
         const p = ph[i];
-        const prevTxt = p.prev ? `${fmtWeight(p.prev.weight)} × ${p.prev.reps}` : '—';
         return html`<div key=${set.id} class=${'set-group' + (set.done ? ' done' : '') + (set.warmup ? ' warmup' : '')}>
           <div class="set-row">
             <button class="set-num" aria-label=${'Options série ' + label} onClick=${() => setMenu(set, i, label)}>${label}</button>
             <button
               class="set-prev"
               onClick=${() => {
-                if (!p.prev) return;
-                set.weight = numToInput(p.prev.weight);
-                set.reps = numToInput(p.prev.reps);
+                const pv = prevInputs(p.prev, type);
+                if (!pv) return;
+                set[ka] = pv[0];
+                set[kb] = pv[1];
                 touch();
               }}
             >
-              ${prevTxt}${p.prev?.drops?.length ? html`<em> +${p.prev.drops.length}↘</em>` : ''}
+              ${prevText(p.prev, type)}${p.prev?.drops?.length ? html`<em> +${p.prev.drops.length}↘</em>` : ''}
             </button>
-            <input ...${fieldProps(set, 'weight', p.w, 'w', 'w-')} aria-label=${'Charge série ' + label} />
-            <input ...${fieldProps(set, 'reps', p.r, 'r', 'r-')} aria-label=${'Répétitions série ' + label} />
+            <input ...${fieldProps(set, cols[0], 0, p.a)} aria-label=${`${cols[0].aria} série ${label}`} />
+            <input ...${fieldProps(set, cols[1], 1, p.b)} aria-label=${`${cols[1].aria} série ${label}`} />
             ${live
               ? html`<button class=${'set-check' + (set.done ? ' on' : '')} aria-label=${set.done ? 'Annuler la validation' : 'Valider la série'} onClick=${() => toggleDone(set, i)}>
                   <${Icon} name="check" size=${18} stroke=${3} />
@@ -576,13 +632,14 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
                   <${Icon} name="x" size=${16} />
                 </button>`}
           </div>
-          ${set.drops.map((d, j) => {
+          ${strength &&
+          set.drops.map((d, j) => {
             const pd = p.drops[j];
             return html`<div key=${d.id} class="set-row drop-row">
               <span class="drop-ico"><${Icon} name="corner-down-right" size=${16} /></span>
               <span class="drop-label">Dégressif ${set.drops.length > 1 ? j + 1 : ''}</span>
-              <input ...${fieldProps(d, 'weight', pd?.w, 'w', 'w-')} aria-label=${'Charge dégressif ' + (j + 1)} />
-              <input ...${fieldProps(d, 'reps', pd?.r, 'r', 'r-')} aria-label=${'Répétitions dégressif ' + (j + 1)} />
+              <input ...${fieldProps(d, COLS.weight[0], 0, pd?.a)} aria-label=${'Charge dégressif ' + (j + 1)} />
+              <input ...${fieldProps(d, COLS.weight[1], 1, pd?.b)} aria-label=${'Répétitions dégressif ' + (j + 1)} />
               <button class="set-del" aria-label="Supprimer le dégressif" onClick=${() => (set.drops.splice(j, 1), touch())}>
                 <${Icon} name="x" size=${16} />
               </button>
@@ -593,7 +650,7 @@ function ExerciseBlock({ entry, index, doc, touch, live, beforeTs, excludeId }) 
     </div>
     <div class="ex-block-actions">
       <button class="btn btn-small" onClick=${addSet}><${Icon} name="plus" size=${16} /> Série</button>
-      <button class="btn btn-small" onClick=${addDropLast}><${Icon} name="corner-down-right" size=${16} /> Dégressif</button>
+      ${strength && html`<button class="btn btn-small" onClick=${addDropLast}><${Icon} name="corner-down-right" size=${16} /> Dégressif</button>`}
     </div>
   </section>`;
 }
@@ -669,7 +726,7 @@ function FinishSheet({ duration, exercises, sets, volume, empty, close }) {
     </div>
     ${duration > 4 * 3600 &&
     html`<div class="sheet-note"><${Icon} name="clock" size=${16} /> Durée inhabituelle ? Tu pourras la corriger avec « Modifier ».</div>`}
-    ${empty > 0 && html`<div class="sheet-note"><${Icon} name="info" size=${16} /> ${empty} série${empty > 1 ? 's' : ''} sans répétitions ${empty > 1 ? 'seront ignorées' : 'sera ignorée'}.</div>`}
+    ${empty > 0 && html`<div class="sheet-note"><${Icon} name="info" size=${16} /> ${empty} série${empty > 1 ? 's' : ''} non renseignée${empty > 1 ? 's seront ignorées' : ' sera ignorée'}.</div>`}
     <div class="sheet-buttons">
       <button class="btn btn-light" onClick=${() => close(true)}>Enregistrer la séance</button>
       <button class="btn btn-ghost" onClick=${() => close(false)}>Continuer la séance</button>

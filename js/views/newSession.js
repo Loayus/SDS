@@ -2,7 +2,7 @@
 import { html, useState } from '../lib.js';
 import { getData, getActive, startSession, newEntry, newEntryLike, discardActive, sessionsDesc } from '../store.js';
 import { Icon, nav, back, TopBar, Segmented, actionSheet } from '../ui.js';
-import { getExercise } from '../exercises.js';
+import { getExercise, programLine } from '../exercises.js';
 import { MuscleThumb, BodyPair } from '../body.js';
 import { musclesOfExercises, toLevels, mainMuscleNames } from '../stats.js';
 import { fmtRelDay, fmtDuration } from '../utils.js';
@@ -74,7 +74,7 @@ export function NewSession() {
     launch({
       name: program.name,
       programId: program.id,
-      entries: included.map((pe) => newEntry(pe.exerciseId, pe.sets || 3, pe.reps || '')),
+      entries: included.map((pe) => newEntry(pe.exerciseId, pe.sets || undefined, pe.reps || '')),
     });
   };
 
@@ -151,7 +151,7 @@ export function NewSession() {
                   <${MuscleThumb} muscle=${ex.muscle} secondary=${ex.secondary} size=${50} />
                   <span class="ex-row-text">
                     <span>${ex.name}</span>
-                    <small>${pe.sets || 3} × ${pe.reps || '—'} reps</small>
+                    <small>${programLine(pe)}</small>
                   </span>
                   <span class=${'check-circle' + (on ? ' on' : '')}>${on && html`<${Icon} name="check" size=${16} stroke=${3} />`}</span>
                 </button>`;

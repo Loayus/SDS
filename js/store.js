@@ -1,10 +1,10 @@
 // Données de l'application, persistées dans le localStorage de l'appareil.
-import { DEFAULT_PROGRAMS, setCustomExercises, getExercise } from './exercises.js';
+import { DEFAULT_PROGRAMS, V1_DEFAULT_PROGRAMS, ID_MAP, programSignature, isLegacyId, setCustomExercises, getExercise, exType } from './exercises.js';
 import { uid, parseNum, numToInput } from './utils.js';
 
 const DATA_KEY = 'sds:data';
 const ACTIVE_KEY = 'sds:active';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 function defaultData() {
   return {
@@ -47,13 +47,55 @@ function normalize(d) {
     programs: Array.isArray(d.programs) ? d.programs : def.programs,
     customExercises: Array.isArray(d.customExercises) ? d.customExercises : [],
   };
+  if ((d.version || 1) < 2) migrateV2(out);
+  else remapIds(out);
   out.version = SCHEMA_VERSION;
   return out;
 }
 
-let data = normalize(readJSON(DATA_KEY));
-let active = readJSON(ACTIVE_KEY);
+const remap = (id) => ID_MAP[id] || id;
+
+/** Remplace les anciens identifiants d'exercice regroupés (idempotent). */
+function remapIds(d) {
+  d.sessions = d.sessions.map((s) => ({ ...s, exercises: (s.exercises || []).map((e) => ({ ...e, exerciseId: remap(e.exerciseId) })) }));
+  d.programs = d.programs.map((p) => ({ ...p, exercises: (p.exercises || []).map((e) => ({ ...e, exerciseId: remap(e.exerciseId) })) }));
+  if (d.profile.goal && d.profile.goal.exerciseId) d.profile.goal = { ...d.profile.goal, exerciseId: remap(d.profile.goal.exerciseId) };
+}
+
+/**
+ * Version 1 → 2 : nouvelle liste d'exercices.
+ * - séances : anciens exercices regroupés sur leur équivalent (l'historique est conservé) ;
+ * - programmes par défaut non modifiés : remplacés par les nouveaux ;
+ * - autres programmes : exercices retirés de la liste supprimés du modèle.
+ */
+function migrateV2(d) {
+  const fresh = Object.fromEntries(DEFAULT_PROGRAMS.map((p) => [p.id, p]));
+  d.programs = d.programs.map((p) => {
+    if (V1_DEFAULT_PROGRAMS[p.id] && V1_DEFAULT_PROGRAMS[p.id] === programSignature(p) && fresh[p.id]) {
+      return JSON.parse(JSON.stringify(fresh[p.id]));
+    }
+    return { ...p, exercises: (p.exercises || []).map((e) => ({ ...e, exerciseId: remap(e.exerciseId) })).filter((e) => !isLegacyId(e.exerciseId)) };
+  });
+  remapIds(d);
+}
+
+/** Séance en cours : anciens identifiants remplacés. */
+function remapActive(a) {
+  if (!a || !Array.isArray(a.exercises)) return null;
+  return { ...a, exercises: a.exercises.map((e) => ({ ...e, exerciseId: remap(e.exerciseId) })) };
+}
+
+const storedData = readJSON(DATA_KEY);
+let data = normalize(storedData);
+let active = remapActive(readJSON(ACTIVE_KEY));
 setCustomExercises(data.customExercises);
+// persiste immédiatement une migration de schéma
+if (storedData && (storedData.version || 1) < SCHEMA_VERSION) {
+  try {
+    localStorage.setItem(DATA_KEY, JSON.stringify(data));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(active));
+  } catch {}
+}
 
 const listeners = new Set();
 let saveError = null;
@@ -129,14 +171,14 @@ export function getSession(id) {
 
 /** Crée une série éditable (valeurs sous forme de texte). */
 export function newSet(partial = {}) {
-  return { id: uid(), weight: '', reps: '', done: false, warmup: false, drops: [], ...partial };
+  return { id: uid(), weight: '', reps: '', min: '', sec: '', km: '', done: false, warmup: false, drops: [], ...partial };
 }
 
 export function newDrop(partial = {}) {
   return { id: uid(), weight: '', reps: '', ...partial };
 }
 
-export function newEntry(exerciseId, nbSets = 3, target = '') {
+export function newEntry(exerciseId, nbSets = exType(exerciseId) === 'weight' ? 3 : 1, target = '') {
   return {
     id: uid(),
     exerciseId,
@@ -148,7 +190,7 @@ export function newEntry(exerciseId, nbSets = 3, target = '') {
 
 /** Nouvel exercice calqué sur une performance précédente (échauffements et dégressifs inclus). */
 export function newEntryLike(exerciseId, prevEntry, target = '') {
-  const e = newEntry(exerciseId, prevEntry ? prevEntry.sets.length : 3, target);
+  const e = newEntry(exerciseId, prevEntry ? prevEntry.sets.length : undefined, target);
   if (prevEntry)
     e.sets.forEach((s, i) => {
       const p = prevEntry.sets[i];
@@ -197,7 +239,23 @@ export function cleanEntries(entries) {
   const out = [];
   for (const e of entries) {
     const sets = [];
+    const type = exType(e.exerciseId);
     for (const s of e.sets) {
+      if (type === 'time') {
+        const duration = Math.round((parseNum(s.min) || 0) * 60 + (parseNum(s.sec) || 0));
+        if (duration > 0) sets.push({ duration });
+        continue;
+      }
+      if (type === 'cardio') {
+        const duration = Math.round((parseNum(s.min) || 0) * 60);
+        const distance = parseNum(s.km);
+        if (duration > 0 || (distance && distance > 0)) {
+          const set = { duration: Math.max(0, duration) };
+          if (distance && distance > 0) set.distance = Math.round(distance * 100) / 100;
+          sets.push(set);
+        }
+        continue;
+      }
       const reps = parseNum(s.reps);
       if (!reps || reps <= 0) continue;
       const weight = parseNum(s.weight) || 0;
@@ -227,7 +285,9 @@ export function toEditableEntries(entries) {
     target: '',
     note: e.note || '',
     sets: e.sets.map((s) =>
-      newSet({
+      s.duration != null || s.distance != null
+        ? newSet({ ...durationFields(s, exType(e.exerciseId)), done: true })
+        : newSet({
         weight: numToInput(s.weight),
         reps: numToInput(s.reps),
         done: true,
@@ -236,6 +296,13 @@ export function toEditableEntries(entries) {
       })
     ),
   }));
+}
+
+/** Série de durée/cardio enregistrée → champs de saisie. */
+export function durationFields(s, type) {
+  const d = s.duration || 0;
+  if (type === 'time') return { min: d >= 60 ? String(Math.floor(d / 60)) : d ? '0' : '', sec: d % 60 ? String(d % 60) : d ? '0' : '' };
+  return { min: d ? numToInput(Math.round((d / 60) * 100) / 100) : '', km: numToInput(s.distance) };
 }
 
 /** Termine la séance en cours et l'ajoute à l'historique. */
@@ -303,8 +370,8 @@ export function deleteProgram(id) {
 // ---------------------------------------------------------------------------
 // Exercices personnalisés
 
-export function addCustomExercise({ name, muscle, equipment }) {
-  const ex = { id: 'perso-' + uid(), name: name.trim(), muscle, secondary: [], equipment: equipment || 'autre', custom: true };
+export function addCustomExercise({ name, muscle, equipment, type = 'weight' }) {
+  const ex = { id: 'perso-' + uid(), name: name.trim(), muscle, secondary: [], equipment: equipment || 'autre', type, custom: true };
   data.customExercises.push(ex);
   commit();
   return ex;
@@ -363,7 +430,7 @@ export function parseBackup(text) {
 export function importBackup({ data: d, active: a }) {
   data = normalize(d);
   data.profile.onboarded = true;
-  active = a && Array.isArray(a.exercises) ? a : null;
+  active = remapActive(a);
   invalidateSorted();
   write(ACTIVE_KEY, active);
   commit();

@@ -30,6 +30,20 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
+const EXPECTED_EXERCISES = [
+  'Tapis de running', 'Vélo', 'Rameur', 'Marche (machine de marche)',
+  'Machine à adducteurs', 'Machine à abducteurs', 'Machine à hip thrust', 'Leg extension', 'Leg curl', 'Leg press', 'Hack squat', 'Squat', 'Fente bulgare',
+  'Tirage vertical (prise large)', 'Tirage vertical (prise serrée)', 'Tirage vertical (poulie)', 'Tirage horizontal (prise large)', 'Tirage horizontal (prise serrée)',
+  'Tirage bûcheron', 'Tirage barre T', 'Extension lombaire', 'Traction',
+  'Développé couché (barre)', 'Développé couché (haltère)', 'Développé décliné (barre)', 'Développé incliné (barre)', 'Développé incliné (haltère)',
+  'Développé incliné (à la Smith)', 'Presse à pectoraux assise', 'Pec fly', 'Écarté (poulie basse)', 'Écarté (poulie milieu)', 'Écarté (poulie haute)',
+  'Développé militaire (haltère)', 'Développé militaire (à la Smith)', 'Développé militaire (machine)', 'Élévations latérales (haltère)', 'Élévations latérales (poulie)',
+  'Élévations frontales (haltère)', 'Élévations frontales (poulie)', 'Rear delt', 'Face pull', 'Shrugs',
+  'Curl marteau (haltère)', 'Curl marteau (machine)', 'Curl marteau (poulie)', 'Curl prise neutre (haltère)', 'Curl prise neutre (machine)', 'Curl prise neutre (poulie)', 'Curl prise neutre (barre)',
+  'Extension triceps corde (poulie haute)', 'Extension triceps triangle (poulie haute)', 'Extension triceps corde (poulie basse)', 'Extension triceps (haltère)', 'Barre au front', 'Dips',
+  'Abdos poulie', 'Routine abdos',
+];
+
 let passed = 0;
 const failures = [];
 async function step(name, fn) {
@@ -128,10 +142,10 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
   await step('ajouter un exercice via la recherche', async () => {
     await btn('Ajouter un exercice').click();
     await page.fill('.picker input[type=search]', 'developpe couche');
-    await page.locator('.picker-row').filter({ has: page.locator('.picker-row-text > span', { hasText: /^Développé couché$/ }) }).click();
+    await page.locator('.picker-row').filter({ has: page.locator('.picker-row-text > span', { hasText: /^Développé couché \(barre\)$/ }) }).click();
     await btn('Ajouter (1)').click();
     await page.locator('.ex-block').first().waitFor();
-    assert((await text('.ex-block-title b')) === 'Développé couché', 'exercice ajouté');
+    assert((await text('.ex-block-title b')) === 'Développé couché (barre)', 'exercice ajouté');
     assert((await page.locator('.ex-block .set-row:not(.drop-row)').count()) === 3, '3 séries par défaut');
   });
 
@@ -230,7 +244,7 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     const recap = await text('.finish-grid');
     assert(recap.includes('1 300 kg'), 'volume 100×4 + 80×3 + 60×2 + 90×6 = 1 300 kg — obtenu : ' + recap.replace(/\n/g, ' '));
     assert(/\b2\s*Séries/.test(recap), '2 séries');
-    assert((await text('.sheet-note')).includes('1 série sans répétitions sera ignorée'), 'série vide signalée');
+    assert((await text('.sheet-note')).includes('1 série non renseignée sera ignorée'), 'série vide signalée');
     await btn('Enregistrer la séance').click();
     await page.locator('.done-banner').waitFor();
     sessionId = page.url().match(/session\/([^?]+)/)[1];
@@ -370,6 +384,20 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     assert((await text('.ex-block-title small')).includes('Objectif 4 × 10-12'), 'objectif affiché');
   });
 
+  await step('bibliothèque = exactement la liste demandée (58 exercices, dans l’ordre)', async () => {
+    await btn('Ajouter un exercice').click();
+    await page.locator('.picker-row').first().waitFor();
+    const names = (await page.locator('.picker-row-text > span').allInnerTexts()).map((t) => t.trim());
+    const expected = EXPECTED_EXERCISES;
+    assert(names.length === expected.length, `${names.length} exercices au lieu de ${expected.length}`);
+    const diff = expected.filter((n, i) => names[i] !== n);
+    assert(!diff.length, 'différences : ' + diff.join(', '));
+    const groups = (await page.locator('.picker-group').allInnerTexts()).map((t) => t.trim().toLowerCase());
+    assert(groups.join(',') === 'cardio,jambes,dos,pectoraux,épaules,bras,abdos', 'intertitres ' + groups.join(','));
+    await page.locator('.picker-head .text-btn', { hasText: 'Annuler' }).click();
+    await page.waitForTimeout(300);
+  });
+
   await step('exercice personnalisé', async () => {
     await btn('Ajouter un exercice').click();
     await page.fill('.picker input[type=search]', 'Tirage menton élastique');
@@ -389,6 +417,54 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     await page.locator('.sheet .btn-danger').click();
     await page.locator('.home-name').waitFor();
     assert(!(await active()) && (await data()).sessions.length === 2, 'séance abandonnée, historique intact');
+  });
+
+  await step('cardio (tapis : 20 min, 3,5 km) et routine abdos (10 min 30) — saisie de durées', async () => {
+    await page.goto(BASE + '#/new');
+    await page.locator('.chip', { hasText: 'Séance libre' }).click();
+    await btn('Démarrer la séance').click();
+    await btn('Ajouter un exercice').click();
+    await page.locator('.picker .chip', { hasText: 'Cardio' }).click();
+    const cardioNames = (await page.locator('.picker-row-text > span').allInnerTexts()).join('|');
+    assert(cardioNames === 'Tapis de running|Vélo|Rameur|Marche (machine de marche)', cardioNames);
+    await page.locator('.picker-row', { hasText: 'Tapis de running' }).click();
+    await page.locator('.picker .chip', { hasText: 'Abdos' }).click();
+    await page.locator('.picker-row', { hasText: 'Routine abdos' }).click();
+    await btn('Ajouter (2)').click();
+    const cardio = page.locator('.ex-block').nth(0);
+    const abs = page.locator('.ex-block').nth(1);
+    await cardio.waitFor();
+    assert((await cardio.locator('.sets-head').innerText()).replace(/\s+/g, ' ').includes('MIN KM'), 'colonnes min / km');
+    assert((await abs.locator('.sets-head').innerText()).replace(/\s+/g, ' ').includes('MIN SEC'), 'colonnes min / sec');
+    assert((await cardio.locator('.set-row').count()) === 1 && (await abs.locator('.set-row').count()) === 1, '1 série par défaut');
+    assert(!(await cardio.getByRole('button', { name: 'Dégressif', exact: true }).count()), 'pas de dégressif en cardio');
+    await cardio.locator('[aria-label="Minutes série 1"]').fill('20');
+    await cardio.locator('[aria-label="Kilomètres série 1"]').fill('3,5');
+    await cardio.getByRole('button', { name: 'Valider la série' }).click();
+    await abs.getByRole('button', { name: 'Valider la série' }).click();
+    await page.locator('.toast', { hasText: 'Indique la durée' }).waitFor();
+    await abs.locator('[aria-label="Minutes série 1"]').fill('10');
+    await abs.locator('[aria-label="Secondes série 1"]').fill('30');
+    await abs.getByRole('button', { name: 'Valider la série' }).click();
+    await eventually(async () => (await page.locator('.set-check.on').count()) === 2, 'deux séries validées');
+    assert(!(await page.locator('.rest-bar').count()), 'pas de minuteur de repos pour le cardio / la durée');
+    await btn('Terminer la séance').click();
+    await page.locator('.finish-grid').waitFor();
+    await btn('Enregistrer la séance').click();
+    await page.locator('.done-banner').waitFor();
+    const s = (await data()).sessions.find((x) => x.exercises.some((e) => e.exerciseId === 'tapis-de-course'));
+    assert(s.exercises[0].sets[0].duration === 1200 && s.exercises[0].sets[0].distance === 3.5, 'cardio enregistré ' + JSON.stringify(s.exercises[0]));
+    assert(s.exercises[1].sets[0].duration === 630, 'routine abdos 630 s');
+    const detail = nbsp(await page.locator('.page.detail').innerText());
+    assert(detail.includes('20 min · 3,5 km') && detail.includes('10 min 30') && detail.includes('10,5 km/h'), 'détail : ' + detail.slice(0, 400));
+  });
+
+  await step('progression du cardio (distance, durée totale)', async () => {
+    await go('#/exercise/tapis-de-course');
+    await page.locator('.record-tile').first().waitFor();
+    const tiles = nbsp((await page.locator('.record-tile').allInnerTexts()).join(' | '));
+    assert(tiles.includes('20 min') && tiles.includes('3,5 km'), tiles);
+    assert((await page.getByRole('tab').allInnerTexts()).join(',') === 'Durée,Distance', 'métriques cardio');
   });
 
   await step('ajout manuel d’une séance passée', async () => {
@@ -417,7 +493,7 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     backupPath = path.join(os.tmpdir(), 'sds-backup-test.json');
     await dl.saveAs(backupPath);
     const j = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
-    assert(j.app === 'SDS' && j.data.sessions.length === 3, 'fichier valide');
+    assert(j.app === 'SDS' && j.data.sessions.length === 4, 'fichier valide');
   });
 
   await step('tout effacer puis restaurer la sauvegarde', async () => {
@@ -426,7 +502,7 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     await page.getByText('Restaurer une sauvegarde').waitFor();
     await page.locator('input[type=file]').setInputFiles(backupPath);
     await page.locator('.home-name').waitFor();
-    assert((await data()).sessions.length === 3, '3 séances restaurées');
+    assert((await data()).sessions.length === 4, '4 séances restaurées');
     assert((await text('.home-name')).includes('Antoine'));
   });
 
@@ -436,7 +512,7 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     fs.writeFileSync(bad, '{"foo": 1}');
     await page.locator('input[type=file]').setInputFiles(bad);
     await page.locator('.toast', { hasText: "n'est pas une sauvegarde SDS" }).waitFor();
-    assert((await data()).sessions.length === 3, 'données intactes');
+    assert((await data()).sessions.length === 4, 'données intactes');
   });
 
   await step('supprimer une séance', async () => {
@@ -445,7 +521,7 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     await sheetAction('Supprimer la séance').click();
     await page.locator('.sheet .btn-danger').click();
     await page.locator('.calendar').waitFor();
-    assert((await data()).sessions.length === 2, 'séance supprimée');
+    assert((await data()).sessions.length === 3, 'séance supprimée');
   });
 
   await step('données de démo : ajout et retrait', async () => {
@@ -453,7 +529,7 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     await page.getByText('Ajouter des données de démo').click();
     await eventually(async () => (await data()).sessions.length > 10, 'démo ajoutée');
     await page.getByText('Retirer les données de démo').click();
-    await eventually(async () => (await data()).sessions.length === 2, 'démo retirée, vraies séances gardées');
+    await eventually(async () => (await data()).sessions.length === 3, 'démo retirée, vraies séances gardées');
   });
 
   await step('mode hors ligne (service worker)', async () => {
@@ -492,12 +568,12 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     await page.getByRole('tab', { name: 'Charge cible' }).click();
     await page.locator('.sheet .field-btn').click();
     await page.fill('.picker input[type=search]', 'developpe couche');
-    await page.locator('.picker-row').filter({ has: page.locator('.picker-row-text > span', { hasText: /^Développé couché$/ }) }).click();
+    await page.locator('.picker-row').filter({ has: page.locator('.picker-row-text > span', { hasText: /^Développé couché \(barre\)$/ }) }).click();
     await page.fill('#goal-target', '120');
     await page.locator('.sheet').getByRole('button', { name: 'Enregistrer' }).click();
     await page.waitForTimeout(300);
     const g = nbsp(await text('.goal-card'));
-    assert(g.includes('Développé couché : 120 kg') && g.includes('85 %'), 'objectif 102,5/120 = 85 % — ' + g);
+    assert(g.includes('Développé couché (barre) : 120 kg') && g.includes('85 %'), 'objectif 102,5/120 = 85 % — ' + g);
   });
 
   await step('réglage du temps de repos (−15 s)', async () => {
@@ -562,6 +638,51 @@ const nbsp = (s) => (s || '').replace(/[\u00a0\u202f]/g, ' ');
     }
     await page.setViewportSize({ width: 402, height: 874 });
     assert(!bad.length, bad.join(', '));
+  });
+
+  await step('migration des données de la version 1 (anciens exercices et programmes)', async () => {
+    const ctx2 = await browser.newContext({ viewport: { width: 402, height: 874 }, isMobile: true, hasTouch: true });
+    const p2 = await ctx2.newPage();
+    p2.on('pageerror', (e) => errors.push('pageerror (migration): ' + e.message));
+    const t0 = Date.now() - 86400000;
+    const v1 = {
+      version: 1,
+      profile: { name: 'Antoine', onboarded: true, bodyWeight: 80, restDefault: 90, sound: true, wakeLock: true, goal: { type: 'exercise', weekly: 3, exerciseId: 'curl-halteres', target: 20 } },
+      sessions: [
+        { id: 's1', name: 'Vieux', startedAt: t0, endedAt: t0 + 3600000, duration: 3600, exercises: [
+          { exerciseId: 'leg-curl-allonge', sets: [{ weight: 40, reps: 10 }] },
+          { exerciseId: 'curl-halteres', sets: [{ weight: 14, reps: 10 }] },
+          { exerciseId: 'gainage', sets: [{ weight: 0, reps: 60 }] },
+        ] },
+      ],
+      programs: [
+        { id: 'push', name: 'Push', exercises: [
+          { exerciseId: 'developpe-couche', sets: 4, reps: '8-10' }, { exerciseId: 'developpe-incline-halteres', sets: 4, reps: '8-10' },
+          { exerciseId: 'ecarte-poulie', sets: 3, reps: '12-15' }, { exerciseId: 'developpe-epaules-halteres', sets: 3, reps: '8-10' },
+          { exerciseId: 'elevations-laterales', sets: 3, reps: '12-15' }, { exerciseId: 'extension-triceps-corde', sets: 3, reps: '10-12' } ] },
+        { id: 'perso', name: 'Bras perso', exercises: [{ exerciseId: 'curl-ez', sets: 3, reps: '10' }, { exerciseId: 'rowing-barre', sets: 3, reps: '10' }] },
+      ],
+      customExercises: [],
+    };
+    await p2.addInitScript((d) => {
+      if (!sessionStorage.getItem('seeded')) {
+        localStorage.setItem('sds:data', JSON.stringify(d));
+        sessionStorage.setItem('seeded', '1');
+      }
+    }, v1);
+    await p2.goto(BASE);
+    await p2.locator('.home-name').waitFor();
+    const d = await p2.evaluate(() => JSON.parse(localStorage.getItem('sds:data')));
+    assert(d.version === 2, 'schéma v2 enregistré');
+    const ids = d.sessions[0].exercises.map((e) => e.exerciseId).join(',');
+    assert(ids === 'leg-curl,curl-neutre-halteres,gainage', 'séance regroupée : ' + ids);
+    assert(d.programs[0].exercises.some((e) => e.exerciseId === 'ecarte-poulie-milieu') && d.programs[0].exercises.length === 6, 'programme Push par défaut remplacé');
+    assert(d.programs[1].exercises.map((e) => e.exerciseId).join(',') === 'curl-neutre-barre', 'programme perso : ' + JSON.stringify(d.programs[1].exercises));
+    assert(d.profile.goal.exerciseId === 'curl-neutre-halteres', 'objectif remappé');
+    await p2.evaluate(() => (location.hash = '#/session/s1'));
+    const txt = await p2.locator('.page.detail').innerText();
+    assert(txt.includes('Leg curl') && txt.includes('Curl prise neutre (haltère)') && txt.includes('Gainage (secondes)'), 'noms affichés : ' + txt.slice(0, 300));
+    await ctx2.close();
   });
 
   await step('aucune erreur JavaScript', async () => {

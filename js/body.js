@@ -1,5 +1,6 @@
 // Silhouette musculaire (face / dos) en SVG, colorée selon l'intensité de travail.
 import { html } from './lib.js';
+import { Icon } from './ui.js';
 
 // Demi-silhouette gauche : [muscle | null, tracé]. La moitié droite est obtenue par symétrie.
 const FRONT = [
@@ -119,6 +120,11 @@ export function BodyPair({ levels = {}, gap, height = 220 }) {
 
 /** Vignette d'exercice : silhouette du côté du muscle principal. */
 export function MuscleThumb({ muscle, secondary = [], side, size = 46 }) {
+  if (muscle === 'cardio') {
+    return html`<div class="thumb thumb-icon" style=${`width:${size}px;height:${size}px`}>
+      <${Icon} name="activity" size=${Math.round(size * 0.5)} stroke=${1.8} />
+    </div>`;
+  }
   const levels = { [muscle]: 1 };
   for (const m of secondary) levels[m] = Math.max(levels[m] || 0, 0.3);
   const s = side || (['triceps', 'back', 'traps', 'lowerback', 'hamstrings', 'glutes', 'calves'].includes(muscle) ? 'back' : 'front');

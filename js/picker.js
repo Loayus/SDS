@@ -1,15 +1,18 @@
 // Sélecteur d'exercices plein écran (recherche, filtres, création d'exercice perso).
 import { html, useState, useMemo, useRef, useEffect } from './lib.js';
-import { Icon, openOverlay, toast } from './ui.js';
-import { allExercises, CATEGORIES, EQUIPMENT, MUSCLES, getExercise } from './exercises.js';
+import { Icon, openOverlay, toast, Segmented } from './ui.js';
+import { allExercises, CATEGORIES, EQUIPMENT, MUSCLES, TYPES, getExercise, exSubtitle } from './exercises.js';
 import { MuscleThumb } from './body.js';
 import { addCustomExercise, sessionsDesc } from './store.js';
 import { norm } from './utils.js';
 
 /** Ouvre le sélecteur. Résout un tableau d'identifiants (ou null si annulé). */
-export function pickExercises({ multi = true, title } = {}) {
-  return openOverlay(Picker, { multi, title: title || (multi ? 'Ajouter des exercices' : 'Choisir un exercice') }, { kind: 'screen' });
+export function pickExercises({ multi = true, title, onlyType = null } = {}) {
+  return openOverlay(Picker, { multi, onlyType, title: title || (multi ? 'Ajouter des exercices' : 'Choisir un exercice') }, { kind: 'screen' });
 }
+
+/** Catégorie d'affichage d'un exercice. */
+const categoryOf = (ex) => (ex.custom ? 'custom' : CATEGORIES.find((c) => c.muscles.includes(ex.muscle))?.id || 'custom');
 
 function recentIds(limit = 15) {
   const seen = new Set();
@@ -26,18 +29,19 @@ function recentIds(limit = 15) {
   return out;
 }
 
-function Picker({ multi, title, close }) {
+function Picker({ multi, title, onlyType, close }) {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');
   const [sel, setSel] = useState([]);
   const [tick, setTick] = useState(0);
-  const recents = useMemo(() => recentIds(), []);
+  const recents = useMemo(() => recentIds().filter((id) => !getExercise(id).legacy && !getExercise(id).missing), []);
 
+  const hasCustom = allExercises().some((e) => e.custom);
   const chips = [
     { id: 'all', name: 'Tous' },
     ...(recents.length ? [{ id: 'recent', name: 'Récents' }] : []),
-    ...CATEGORIES,
-    { id: 'custom', name: 'Perso' },
+    ...CATEGORIES.filter((c) => !onlyType || allExercises().some((e) => c.muscles.includes(e.muscle) && (e.type || 'weight') === onlyType)),
+    ...(hasCustom ? [{ id: 'custom', name: 'Perso' }] : []),
   ];
 
   const list = useMemo(() => {
@@ -49,6 +53,7 @@ function Picker({ multi, title, close }) {
       const c = CATEGORIES.find((x) => x.id === cat);
       items = items.filter((e) => c.muscles.includes(e.muscle));
     }
+    if (onlyType) items = items.filter((e) => (e.type || 'weight') === onlyType);
     if (nq) {
       const words = nq.split(/\s+/);
       items = items.filter((e) => {
@@ -56,7 +61,6 @@ function Picker({ multi, title, close }) {
         return words.every((w) => hay.includes(w));
       });
     }
-    if (cat !== 'recent') items = [...items].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     return items;
   }, [q, cat, recents, tick]);
 
@@ -111,13 +115,18 @@ function Picker({ multi, title, close }) {
         <span class="picker-create-icon"><${Icon} name="plus" size=${20} /></span>
         <span>Créer un exercice${q.trim() ? html` « <b>${q.trim()}</b> »` : ''}</span>
       </button>
-      ${list.map((ex) => {
+      ${list.map((ex, i) => {
         const on = sel.includes(ex.id);
-        return html`<button key=${ex.id} class=${'picker-row' + (on ? ' on' : '')} onClick=${() => toggle(ex.id)}>
+        // intertitres de catégorie dans la liste complète
+        const group = cat === 'all' && !q.trim() ? categoryOf(ex) : null;
+        const header = group && (i === 0 || categoryOf(list[i - 1]) !== group);
+        const groupName = group === 'custom' ? 'Perso' : CATEGORIES.find((c) => c.id === group)?.name;
+        return html`${header && html`<div class="picker-group" key=${'g-' + group}>${groupName}</div>`}
+        <button key=${ex.id} class=${'picker-row' + (on ? ' on' : '')} onClick=${() => toggle(ex.id)}>
           <${MuscleThumb} muscle=${ex.muscle} secondary=${ex.secondary} size=${44} />
           <span class="picker-row-text">
             <span>${ex.name}</span>
-            <small>${MUSCLES[ex.muscle]?.name} · ${EQUIPMENT[ex.equipment] || 'Autre'}${ex.custom ? ' · Perso' : ''}</small>
+            <small>${exSubtitle(ex)}</small>
           </span>
           ${multi
             ? html`<span class=${'check-circle' + (on ? ' on' : '')}>${on && html`<${Icon} name="check" size=${16} stroke=${3} />`}</span>`
@@ -131,6 +140,7 @@ function Picker({ multi, title, close }) {
 
 function CreateExerciseSheet({ initialName = '', close }) {
   const [name, setName] = useState(initialName);
+  const [type, setType] = useState('weight');
   const [muscle, setMuscle] = useState('chest');
   const [equipment, setEquipment] = useState('halteres');
   const ref = useRef();
@@ -144,25 +154,29 @@ function CreateExerciseSheet({ initialName = '', close }) {
       toast("Donne un nom à l'exercice", { icon: 'info' });
       return;
     }
-    close(addCustomExercise({ name, muscle, equipment }));
+    close(addCustomExercise({ name, type, muscle: type === 'cardio' ? 'cardio' : muscle, equipment: type === 'weight' ? equipment : 'machine' }));
   };
   return html`<form class="sheet tall" onSubmit=${submit} role="dialog" aria-label="Nouvel exercice">
     <div class="sheet-grabber"></div>
     <div class="sheet-head"><div class="sheet-title">Nouvel exercice</div></div>
     <label class="form-label">Nom</label>
     <input ref=${ref} class="field" type="text" placeholder="Ex. : Développé couché unilatéral" value=${name} onInput=${(e) => setName(e.target.value)} />
-    <label class="form-label">Muscle principal</label>
-    <div class="chips wrap">
-      ${Object.entries(MUSCLES).map(
-        ([id, m]) => html`<button type="button" class=${'chip' + (muscle === id ? ' active' : '')} onClick=${() => setMuscle(id)}>${m.name}</button>`
-      )}
-    </div>
-    <label class="form-label">Matériel</label>
-    <div class="chips wrap">
-      ${Object.entries(EQUIPMENT).map(
-        ([id, n]) => html`<button type="button" class=${'chip' + (equipment === id ? ' active' : '')} onClick=${() => setEquipment(id)}>${n}</button>`
-      )}
-    </div>
+    <label class="form-label">Ce que tu notes</label>
+    <${Segmented} value=${type} onChange=${setType} options=${Object.entries(TYPES).map(([value, t]) => ({ value, label: t.name }))} />
+    ${type !== 'cardio' &&
+    html`<label class="form-label">Muscle principal</label>
+      <div class="chips wrap">
+        ${Object.entries(MUSCLES)
+          .filter(([, m]) => !m.noBody)
+          .map(([id, m]) => html`<button type="button" class=${'chip' + (muscle === id ? ' active' : '')} onClick=${() => setMuscle(id)}>${m.name}</button>`)}
+      </div>`}
+    ${type === 'weight' &&
+    html`<label class="form-label">Matériel</label>
+      <div class="chips wrap">
+        ${Object.entries(EQUIPMENT).map(
+          ([id, n]) => html`<button type="button" class=${'chip' + (equipment === id ? ' active' : '')} onClick=${() => setEquipment(id)}>${n}</button>`
+        )}
+      </div>`}
     <div class="sheet-buttons">
       <button type="submit" class="btn btn-light">Créer l'exercice</button>
       <button type="button" class="btn btn-ghost" onClick=${() => close(null)}>Annuler</button>

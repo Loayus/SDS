@@ -111,7 +111,7 @@ function GoalSheet({ close }) {
     close(true);
   };
   const choose = async () => {
-    const ids = await pickExercises({ multi: false, title: 'Exercice de l’objectif' });
+    const ids = await pickExercises({ multi: false, title: 'Exercice de l’objectif', onlyType: 'weight' });
     if (ids && ids[0]) setExId(ids[0]);
   };
 

@@ -5,7 +5,7 @@ Application web installable sur iPhone pour noter ses séances de musculation. E
 ## Fonctionnalités
 
 - **Séance en direct** : le chrono démarre avec la séance (pause/reprise). Il continue même si l'app est fermée, parce qu'il est calculé à partir de l'heure de début.
-- **Exercices et séries** : environ 90 exercices en français, avec recherche, filtres par muscle et exercices personnalisés. Pour chaque série on saisit les kg et les répétitions.
+- **Exercices et séries** : une liste de 58 exercices (cardio, jambes, dos, pectoraux, épaules, bras, abdos), avec recherche, filtres et exercices personnalisés. Pour la musculation on saisit les kg et les répétitions ; pour le cardio (tapis, vélo, rameur, marche), la durée et la distance ; pour la routine abdos, la durée seule.
 - **Dégressifs** : une série peut contenir plusieurs paliers, par exemple `4 × 100 kg ↘ 3 × 80 kg ↘ 2 × 60 kg`.
 - **Échauffements** : une série marquée comme échauffement n'est comptée ni dans le volume ni dans les records.
 - **Valeurs précédentes** : les charges et répétitions de la dernière séance sont proposées. Une touche sur ✓ les valide telles quelles.

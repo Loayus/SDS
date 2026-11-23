@@ -2795,3 +2795,65 @@ button.list-row:active {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Exercices cardio / durée */
+.thumb-icon {
+  color: var(--accent-2);
+}
+.detail-cardio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-2);
+  margin-bottom: 8px;
+}
+.ex-hero-icon {
+  color: rgba(179, 166, 255, 0.55);
+  padding: 20px 26px;
+}
+.cardio-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+.cardio-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.cardio-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.cardio-card-values {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.cardio-card-values span {
+  color: var(--text-3);
+}
+.picker-group {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  padding: 18px 4px 6px;
+}
+.sheet .segmented + .form-label {
+  margin-top: 4px;
+}

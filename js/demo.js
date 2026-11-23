@@ -6,23 +6,24 @@ const PLAN = {
   Push: [
     ['developpe-couche', 70, 4, 8],
     ['developpe-incline-halteres', 26, 4, 10],
-    ['ecarte-poulie', 15, 3, 12],
+    ['ecarte-poulie-milieu', 15, 3, 12],
     ['elevations-laterales', 10, 3, 14],
     ['extension-triceps-corde', 25, 3, 12],
+    ['routine-abdos', 'time', 600],
   ],
   Pull: [
     ['tractions', 0, 4, 8],
-    ['rowing-barre', 60, 4, 10],
-    ['tirage-horizontal', 55, 3, 12],
+    ['tirage-horizontal-serre', 60, 4, 10],
+    ['tirage-vertical-large', 55, 3, 12],
     ['face-pull', 20, 3, 15],
-    ['curl-ez', 30, 3, 10],
+    ['curl-neutre-halteres', 14, 3, 10],
   ],
   Legs: [
     ['squat', 90, 4, 6],
     ['presse-cuisses', 160, 3, 12],
-    ['souleve-de-terre-roumain', 80, 3, 10],
-    ['leg-curl-allonge', 40, 3, 12],
-    ['mollets-debout', 60, 4, 15],
+    ['leg-curl', 40, 3, 12],
+    ['hip-thrust', 80, 3, 12],
+    ['tapis-de-course', 'cardio', 900, 2.2],
   ],
 };
 
@@ -43,6 +44,8 @@ export function addDemoData() {
       const prog = (8 - w) / 8; // 0 → 1
       const start = day + (17 + Math.floor(Math.random() * 3)) * 3600000 + Math.floor(Math.random() * 50) * 60000;
       const exercises = PLAN[name].map(([exerciseId, base, nSets, reps], idx) => {
+        if (base === 'time') return { exerciseId, sets: [{ duration: nSets + Math.round(prog * 4) * 30 }] };
+        if (base === 'cardio') return { exerciseId, sets: [{ duration: nSets + Math.round(prog * 5) * 60, distance: Math.round((reps + prog * 0.8) * 100) / 100 }] };
         const top = base ? round(base * (1 + 0.12 * prog)) : 0;
         const sets = [];
         for (let i = 0; i < nSets; i++) {

@@ -4,11 +4,31 @@ import { getSession, deleteSession, upsertProgram } from '../store.js';
 import { Icon, nav, back, TopBar, actionSheet, confirmDialog, toast } from '../ui.js';
 import { getExercise, MUSCLES } from '../exercises.js';
 import { BodyPair, MuscleThumb } from '../body.js';
-import { sessionVolume, sessionSetCount, sessionCalories, sessionPRs, muscleSets, toLevels, entryVolume, sessionReps } from '../stats.js';
-import { fmtLongDate, fmtTime, fmtDuration, fmtKg, fmtWeight, fmtNum, cap, uid, plural } from '../utils.js';
+import { sessionVolume, sessionSetCount, sessionCalories, sessionPRs, muscleSets, toLevels, entryVolume, sessionReps, sessionCardio, entryDuration } from '../stats.js';
+import { fmtLongDate, fmtTime, fmtDuration, fmtKg, fmtWeight, fmtNum, cap, uid, plural, fmtTimeSet, fmtKm, speedKmh } from '../utils.js';
 import { repeatSession } from './newSession.js';
 
-const PR_LABEL = { weight: 'Charge max', '1rm': '1RM estimé', reps: 'Reps max', volume: 'Volume' };
+export const PR_LABEL = { weight: 'Charge max', '1rm': '1RM estimé', reps: 'Reps max', volume: 'Volume', duration: 'Durée', distance: 'Distance' };
+
+/** Résumé d'un exercice dans la séance (sous le nom). */
+function entryLine(e, type) {
+  if (type === 'weight') return `${plural(e.sets.filter((x) => !x.warmup).length, 'série')} · ${fmtKg(entryVolume(e))}`;
+  const d = entryDuration(e);
+  const parts = [];
+  if (d.duration) parts.push(fmtTimeSet(d.duration));
+  if (d.distance) parts.push(fmtKm(d.distance));
+  const v = speedKmh(d.distance, d.duration);
+  if (v) parts.push(`${fmtNum(v, 1)} km/h`);
+  return parts.join(' · ') || '—';
+}
+
+/** Valeur d'une série selon le type. */
+function SetValue({ st, type }) {
+  if (type === 'time') return html`<b>${fmtTimeSet(st.duration)}</b>`;
+  if (type === 'cardio')
+    return html`${st.duration ? html`<b>${fmtTimeSet(st.duration)}</b>` : ''}${st.duration && st.distance ? ' · ' : ''}${st.distance ? html`<b>${fmtKm(st.distance)}</b>` : ''}`;
+  return html`${st.weight ? html`<b>${fmtWeight(st.weight)}</b> kg` : html`<b>PDC</b>`} × <b>${st.reps}</b>`;
+}
 
 export function SessionDetail({ id, done }) {
   const s = getSession(id);
@@ -19,6 +39,7 @@ export function SessionDetail({ id, done }) {
     </div>`;
   }
   const prs = sessionPRs(s);
+  const cardio = sessionCardio(s);
   const prCount = Object.keys(prs).length;
   const levels = toLevels(muscleSets([s]));
   const topMuscles = Object.entries(muscleSets([s]))
@@ -83,22 +104,32 @@ export function SessionDetail({ id, done }) {
     <div class="card detail-summary">
       <div class="detail-date">${cap(fmtLongDate(s.startedAt))}</div>
       <div class="muted small">${fmtTime(s.startedAt)} – ${fmtTime(s.endedAt || s.startedAt + (s.duration || 0) * 1000)}</div>
-      <div class="detail-stats">
-        <div><b>${fmtDuration(s.duration)}</b><small>Durée</small></div>
-        <div><b>${fmtKg(sessionVolume(s))}</b><small>Volume</small></div>
-        <div><b>${sessionSetCount(s)}</b><small>Séries</small></div>
-        <div><b>${fmtNum(sessionReps(s))}</b><small>Reps</small></div>
-      </div>
+      ${sessionSetCount(s) > 0 || !(cardio.duration || cardio.distance)
+        ? html`<div class="detail-stats">
+            <div><b>${fmtDuration(s.duration)}</b><small>Durée</small></div>
+            <div><b>${fmtKg(sessionVolume(s))}</b><small>Volume</small></div>
+            <div><b>${sessionSetCount(s)}</b><small>Séries</small></div>
+            <div><b>${fmtNum(sessionReps(s))}</b><small>Reps</small></div>
+          </div>`
+        : html`<div class="detail-stats">
+            <div><b>${fmtDuration(s.duration)}</b><small>Durée</small></div>
+            <div><b>${cardio.duration ? fmtTimeSet(cardio.duration) : '—'}</b><small>Cardio</small></div>
+            <div><b>${cardio.distance ? fmtKm(cardio.distance) : '—'}</b><small>Distance</small></div>
+            <div><b>${s.exercises.length}</b><small>Exercices</small></div>
+          </div>`}
+      ${sessionSetCount(s) > 0 && (cardio.duration > 0 || cardio.distance > 0) &&
+      html`<div class="detail-cardio"><${Icon} name="activity" size=${16} /> Cardio : ${[cardio.duration ? fmtTimeSet(cardio.duration) : '', cardio.distance ? fmtKm(cardio.distance) : ''].filter(Boolean).join(' · ')}</div>`}
       <div class="muted small center">≈ ${fmtNum(sessionCalories(s))} kcal dépensées (estimation)</div>
     </div>
 
-    <div class="card muscles-card">
+    ${topMuscles.length > 0 &&
+    html`<div class="card muscles-card">
       <div class="muscles-card-text">
         <div class="label">Muscles travaillés</div>
         <div class="muscles-list">${topMuscles.join(' • ') || '—'}</div>
       </div>
       <${BodyPair} levels=${levels} height=${170} />
-    </div>
+    </div>`}
 
     ${s.note && html`<div class="card note-card"><${Icon} name="notebook-pen" size=${16} /><p>${s.note}</p></div>`}
 
@@ -106,6 +137,7 @@ export function SessionDetail({ id, done }) {
     <div class="stack">
       ${s.exercises.map((e) => {
         const ex = getExercise(e.exerciseId);
+        const type = ex.type || 'weight';
         const pr = prs[e.exerciseId];
         let n = 0;
         return html`<div class="card detail-ex">
@@ -113,7 +145,7 @@ export function SessionDetail({ id, done }) {
             <${MuscleThumb} muscle=${ex.muscle} secondary=${ex.secondary} size=${44} />
             <span>
               <b>${ex.name}</b>
-              <small>${plural(e.sets.filter((x) => !x.warmup).length, 'série')} · ${fmtKg(entryVolume(e))}</small>
+              <small>${entryLine(e, type)}</small>
               ${pr && html`<span class="pr-badge">🏆 Record : ${pr.map((k) => PR_LABEL[k]).join(', ')}</span>`}
             </span>
             <${Icon} name="chevron-right" size=${18} class="muted" />
@@ -123,7 +155,7 @@ export function SessionDetail({ id, done }) {
             ${e.sets.map(
               (st) => html`<div class=${'detail-set' + (st.warmup ? ' warmup' : '')}>
                   <span class="detail-set-n">${st.warmup ? 'É' : ++n}</span>
-                  <span class="detail-set-v">${st.weight ? html`<b>${fmtWeight(st.weight)}</b> kg` : html`<b>PDC</b>`} × <b>${st.reps}</b></span>
+                  <span class="detail-set-v"><${SetValue} st=${st} type=${type} /></span>
                 </div>
                 ${(st.drops || []).map(
                   (d) => html`<div class="detail-set drop">

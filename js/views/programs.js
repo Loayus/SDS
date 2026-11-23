@@ -3,7 +3,7 @@ import { html, useState } from '../lib.js';
 import { getData, getProgram, upsertProgram, deleteProgram } from '../store.js';
 import { Icon, nav, back, TopBar, confirmDialog, toast, Empty } from '../ui.js';
 import { pickExercises } from '../picker.js';
-import { getExercise } from '../exercises.js';
+import { getExercise, exType } from '../exercises.js';
 import { MuscleThumb } from '../body.js';
 import { mainMuscleNames } from '../stats.js';
 import { uid } from '../utils.js';
@@ -48,7 +48,13 @@ export function ProgramEditor({ id }) {
 
   const add = async () => {
     const ids = await pickExercises({ multi: true });
-    if (ids && ids.length) upd((d) => ids.forEach((exerciseId) => d.exercises.push({ exerciseId, sets: 3, reps: '8-12' })));
+    if (ids && ids.length)
+      upd((d) =>
+        ids.forEach((exerciseId) => {
+          const strength = exType(exerciseId) === 'weight';
+          d.exercises.push({ exerciseId, sets: strength ? 3 : 1, reps: strength ? '8-12' : '' });
+        })
+      );
   };
 
   const save = () => {
@@ -104,8 +110,8 @@ export function ProgramEditor({ id }) {
               </div>
             </div>
             <div class="pg-field">
-              <small>Répétitions</small>
-              <input class="field small" type="text" inputmode="text" placeholder="8-12" value=${pe.reps || ''} onInput=${(e) => (pe.reps = e.target.value)} onBlur=${(e) => upd((d) => (d.exercises[i].reps = e.target.value))} />
+              <small>${ex.type === 'weight' ? 'Répétitions' : 'Objectif'}</small>
+              <input class="field small" type="text" inputmode="text" placeholder=${ex.type === 'weight' ? '8-12' : ex.type === 'cardio' ? '20 min' : '10 min'} value=${pe.reps || ''} onInput=${(e) => (pe.reps = e.target.value)} onBlur=${(e) => upd((d) => (d.exercises[i].reps = e.target.value))} />
             </div>
           </div>
         </div>`;

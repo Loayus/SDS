@@ -5,8 +5,8 @@ import { Icon, nav, Segmented, Delta, Empty } from '../ui.js';
 import { LineChart, ProgressBar } from '../charts.js';
 import { BodyPair, MuscleThumb } from '../body.js';
 import { MUSCLES, getExercise } from '../exercises.js';
-import { summarize, sessionsBetween, volumeSeries, periodBounds, muscleSets, toLevels, workSets } from '../stats.js';
-import { fmtKg, fmtDuration, fmtNum, fmtShortDate, MONTHS_SHORT, pctChange } from '../utils.js';
+import { summarize, sessionsBetween, volumeSeries, periodBounds, muscleSets, toLevels, workSets, isStrength } from '../stats.js';
+import { fmtKg, fmtDuration, fmtNum, fmtShortDate, MONTHS_SHORT, pctChange, fmtTimeSet, fmtKm } from '../utils.js';
 
 let lastRange = '7d';
 
@@ -33,7 +33,7 @@ export function Stats() {
 
   // exercices les plus travaillés sur la période
   const exCount = {};
-  for (const s of cur) for (const e of s.exercises) exCount[e.exerciseId] = (exCount[e.exerciseId] || 0) + workSets(e).length;
+  for (const s of cur) for (const e of s.exercises) if (isStrength(e)) exCount[e.exerciseId] = (exCount[e.exerciseId] || 0) + workSets(e).length;
   const topEx = Object.entries(exCount)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
@@ -102,6 +102,19 @@ export function Stats() {
               <${Delta} value=${delta(sc.calories, sp.calories)} />
             </div>
           </div>
+
+          ${(sc.cardioDuration > 0 || sc.cardioDistance > 0 || sp.cardioDuration > 0) &&
+          html`<div class="card cardio-card">
+            <span class="cardio-card-icon"><${Icon} name="activity" size=${24} /></span>
+            <div class="cardio-card-text">
+              <div class="label">Cardio</div>
+              <div class="cardio-card-values">
+                <b>${fmtTimeSet(sc.cardioDuration)}</b>
+                ${sc.cardioDistance > 0 && html`<span>·</span><b>${fmtKm(sc.cardioDistance)}</b>`}
+              </div>
+            </div>
+            <${Delta} value=${delta(sc.cardioDuration, sp.cardioDuration)} />
+          </div>`}
 
           <div class="section-title"><h2>Groupes musculaires</h2><span class="muted small">séries</span></div>
           <div class="card muscles-stats">

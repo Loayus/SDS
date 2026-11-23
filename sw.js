@@ -1,6 +1,6 @@
 // Service worker SDS : l'app fonctionne entièrement hors ligne.
 // Pense à incrémenter VERSION à chaque mise en ligne d'une nouvelle version.
-const VERSION = 'sds-v1.0.0';
+const VERSION = 'sds-v1.1.0';
 
 const ASSETS = [
   './',

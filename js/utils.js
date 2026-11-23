@@ -203,3 +203,24 @@ export function isIOS() {
 export function isStandalone() {
   return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
 }
+
+/** Durée d'une série chronométrée : 45 → « 45 s », 90 → « 1 min 30 », 600 → « 10 min ». */
+export function fmtTimeSet(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  if (sec >= 3600) return fmtDuration(sec);
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s ? `${m} min ${String(s).padStart(2, '0')}` : `${m} min`;
+}
+
+/** Distance : 3.25 → « 3,25 km ». */
+export function fmtKm(km) {
+  return `${nf2.format(Math.round((km || 0) * 100) / 100)} km`;
+}
+
+/** Vitesse moyenne en km/h (null si incalculable). */
+export function speedKmh(km, sec) {
+  if (!km || !sec) return null;
+  return km / (sec / 3600);
+}
